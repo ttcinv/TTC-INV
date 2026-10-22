@@ -1,0 +1,71 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'em.nalo92@gmail.com' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidInventoryData(data) {
+      return data.inv is string && data.inv.size() <= 100 &&
+             data.start is string && data.start.size() <= 10 &&
+             data.cut is string && data.cut.size() <= 10 &&
+             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64)) &&
+             (!('updatedBy' in data) || (data.updatedBy is string && data.updatedBy.size() <= 100));
+    }
+
+    function isValidAuditLog(data) {
+      return data.t is string && data.t.size() <= 64 &&
+             data.u is string && data.u.size() <= 100 &&
+             data.act is string && data.act.size() <= 50 &&
+             data.desc is string && data.desc.size() <= 500;
+    }
+
+    // Connection testing doc
+    match /test/{testId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Main inventory state
+    match /inventory_data/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if false;
+      allow create, update: if isValidId(docId) && isSignedIn() && isValidInventoryData(incoming());
+      allow delete: if isValidId(docId) && isAdmin();
+    }
+
+    // Audit logs
+    match /audit_logs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isValidId(logId) && isSignedIn() && isValidAuditLog(incoming());
+      allow update, delete: if isValidId(logId) && isAdmin();
+    }
+  }
+}

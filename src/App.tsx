@@ -25,6 +25,15 @@ import { LoginModal } from './components/LoginModal';
 import { PasswordModal } from './components/PasswordModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { ShieldAlert } from 'lucide-react';
+import {
+  testConnection,
+  ensureAuthSession,
+  saveStateToFirestore,
+  subscribeToFirestoreState,
+  signInWithGoogle,
+  auth
+} from './firebase';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
 export default function App() {
   const [state, setState] = useState<AppState>(() => loadState());
@@ -72,7 +81,46 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Save state on change
+  const [cloudStatus, setCloudStatus] = useState<'connected' | 'syncing' | 'offline'>('syncing');
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const isRemoteSyncRef = React.useRef(false);
+
+  // Initialize Firebase connection and sync
+  useEffect(() => {
+    testConnection();
+    ensureAuthSession();
+
+    const unsubAuth = onAuthStateChanged(auth, u => {
+      setFirebaseUser(u);
+    });
+
+    const unsubFirestore = subscribeToFirestoreState(
+      remoteState => {
+        if (remoteState && typeof remoteState === 'object') {
+          isRemoteSyncRef.current = true;
+          setState(remoteState);
+          setCloudStatus('connected');
+          setTimeout(() => {
+            isRemoteSyncRef.current = false;
+          }, 150);
+        }
+      },
+      () => {
+        // Document empty on Firestore, seed from local state
+        const initial = loadState();
+        saveStateToFirestore(initial, 'Initial Setup')
+          .then(() => setCloudStatus('connected'))
+          .catch(() => setCloudStatus('offline'));
+      }
+    );
+
+    return () => {
+      unsubAuth();
+      unsubFirestore();
+    };
+  }, []);
+
+  // Save state to local cache on change
   useEffect(() => {
     saveState(state);
   }, [state]);
@@ -151,7 +199,7 @@ export default function App() {
         const entry: LogEntry = {
           id: rnd(),
           t: new Date().toISOString(),
-          u: currentUser ? currentUser.name : '(anonymous)',
+          u: currentUser ? currentUser.name : (firebaseUser?.displayName || firebaseUser?.email || '(system)'),
           tab: currentTab.startsWith('w') ? 'summary' : currentTab,
           act: actionDescription.includes('deleted')
             ? 'Deleted'
@@ -166,6 +214,14 @@ export default function App() {
         };
         next.log = [...(next.log || []), entry];
       }
+
+      if (!isRemoteSyncRef.current) {
+        setCloudStatus('syncing');
+        saveStateToFirestore(next, currentUser?.name || firebaseUser?.email || undefined)
+          .then(() => setCloudStatus('connected'))
+          .catch(() => setCloudStatus('offline'));
+      }
+
       return next;
     });
   };
@@ -245,6 +301,15 @@ export default function App() {
         onSignOut={handleSignOut}
         darkMode={darkMode}
         onToggleDarkMode={() => setDarkMode(!darkMode)}
+        cloudStatus={cloudStatus}
+        firebaseEmail={firebaseUser?.email}
+        onGoogleSignIn={async () => {
+          try {
+            await signInWithGoogle();
+          } catch (e) {
+            console.error('Google sign in error', e);
+          }
+        }}
       />
 
       {/* Tabs Navigation */}
