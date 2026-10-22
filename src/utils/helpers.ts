@@ -167,9 +167,9 @@ export const getSeedState = (): AppState => ({
     createInitialRow(3, '2026-10-16', { itf: 30, end: 30 }),
     createInitialRow(4, '2026-10-16', { itf: 23, end: 23 })
   ].map(r => ({ ...r, loc: 'Commissary Takehome' })),
-  cash: { 'Commissary Takehome|2026-10-05': 35 },
+  cash: {},
   cashiers: ['Lica Cudiamat', 'Marlyn Maruya', 'Godelyn Roncales'],
-  cinfo: { 'Commissary Takehome|2026-10-05': { cashier: 'Lica Cudiamat', shift: 'A' } },
+  cinfo: {},
   cpay: {},
   users: [
     {
@@ -233,6 +233,9 @@ export function loadState(): AppState {
         if (!parsed.users) parsed.users = seed.users;
         if (!parsed.cashiers) parsed.cashiers = seed.cashiers;
         if (!parsed.cash) parsed.cash = {};
+        if (parsed.cash['Commissary Takehome|2026-10-05'] === 35) {
+          delete parsed.cash['Commissary Takehome|2026-10-05'];
+        }
         if (!parsed.cinfo) parsed.cinfo = {};
         if (!parsed.cpay) parsed.cpay = {};
         if (!parsed.log) parsed.log = [];

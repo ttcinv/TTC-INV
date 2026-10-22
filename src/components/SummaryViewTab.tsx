@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Download, Calendar, DollarSign, Package } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Download, Calendar, DollarSign, Package, ArrowLeftRight, ArrowRightLeft, ArrowRight } from 'lucide-react';
 import { AppState, Row } from '../types';
 import {
   acct,
@@ -24,6 +24,7 @@ interface SummaryViewTabProps {
   tabKey: string;
   canAdmin: boolean;
   onUpdateState: (updater: (prev: AppState) => AppState) => void;
+  onSelectTab?: (tabId: string) => void;
 }
 
 export const SummaryViewTab: React.FC<SummaryViewTabProps> = ({
@@ -33,7 +34,8 @@ export const SummaryViewTab: React.FC<SummaryViewTabProps> = ({
   endDate,
   tabKey,
   canAdmin,
-  onUpdateState
+  onUpdateState,
+  onSelectTab
 }) => {
   const C = computeRows(state.rows, state.items);
 
@@ -73,6 +75,79 @@ export const SummaryViewTab: React.FC<SummaryViewTabProps> = ({
   });
   const totalCashOnHand = cashKeys.reduce((t, k) => t + num(state.cash[k]), 0);
   const [viewMode, setViewMode] = useState<'all' | 'inventory' | 'cost'>('all');
+
+  // Transfer From Breakdown by Location (matches Transfer From Tab)
+  const transferFromSummary = useMemo(() => {
+    const locMap: Record<string, { qty: number; netCost: number }> = {};
+    let totalQty = 0;
+    let totalCost = 0;
+
+    rangeRowIndices.forEach(i => {
+      const r = state.rows[i];
+      const qty = num(r.tf);
+      if (qty > 0) {
+        const srcLoc = (r.tfl || 'Unspecified').trim();
+        const it = state.items.find(x => x.no === r.no);
+        const uCost = it ? unitCost(it) : 0;
+        const isVat = it?.vat !== 'NVAT';
+        const cost = isVat ? (qty * uCost) / 1.12 : qty * uCost;
+
+        if (!locMap[srcLoc]) locMap[srcLoc] = { qty: 0, netCost: 0 };
+        locMap[srcLoc].qty += qty;
+        locMap[srcLoc].netCost += cost;
+        totalQty += qty;
+        totalCost += cost;
+      }
+    });
+
+    return {
+      locations: Object.entries(locMap).sort((a, b) => b[1].netCost - a[1].netCost),
+      totalQty,
+      totalCost
+    };
+  }, [rangeRowIndices, state.rows, state.items]);
+
+  // Transfer TO & Bad Order Breakdown by Location (matches Transfer TO Tab)
+  const transferToSummary = useMemo(() => {
+    const locMap: Record<string, { qty: number; netCost: number }> = {};
+    let totalTtQty = 0;
+    let totalTtCost = 0;
+    let totalBadQty = 0;
+    let totalBadCost = 0;
+
+    rangeRowIndices.forEach(i => {
+      const r = state.rows[i];
+      const tt = num(r.tt);
+      const bad = num(r.bad);
+      const it = state.items.find(x => x.no === r.no);
+      const uCost = it ? unitCost(it) : 0;
+      const isVat = it?.vat !== 'NVAT';
+      const calcNet = (qty: number) => (isVat ? (qty * uCost) / 1.12 : qty * uCost);
+
+      if (tt > 0) {
+        const destLoc = (r.ttl || 'Unspecified').trim();
+        const cost = calcNet(tt);
+        if (!locMap[destLoc]) locMap[destLoc] = { qty: 0, netCost: 0 };
+        locMap[destLoc].qty += tt;
+        locMap[destLoc].netCost += cost;
+        totalTtQty += tt;
+        totalTtCost += cost;
+      }
+
+      if (bad > 0) {
+        totalBadQty += bad;
+        totalBadCost += calcNet(bad);
+      }
+    });
+
+    return {
+      locations: Object.entries(locMap).sort((a, b) => b[1].netCost - a[1].netCost),
+      totalTtQty,
+      totalTtCost,
+      totalBadQty,
+      totalBadCost
+    };
+  }, [rangeRowIndices, state.rows, state.items]);
 
   return (
     <div className="space-y-4">
@@ -542,37 +617,175 @@ export const SummaryViewTab: React.FC<SummaryViewTabProps> = ({
             );
           })}
 
-          {/* Cash Details for Summary */}
-          <div className="w-full sm:w-96 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs overflow-hidden mt-6">
-            <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 font-semibold text-xs text-slate-800 dark:text-slate-200">
-              Cash Details Summary
+          {/* Summary Reconciliations & Cash Details */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-6">
+            {/* Cash Details for Summary */}
+            <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+              <div className="bg-slate-100 dark:bg-slate-800 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 font-semibold text-xs text-slate-800 dark:text-slate-200">
+                Cash Details Summary
+              </div>
+              <div className="p-3 space-y-2 text-xs">
+                <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-600 dark:text-slate-400">Should be Sales:</span>
+                  <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                    ₱{acct(grandTotalSales)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-600 dark:text-slate-400">Cash on Hand:</span>
+                  <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                    {cashKeys.length ? `₱${acct(totalCashOnHand)}` : '—'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">Over / Short:</span>
+                  <span
+                    className={`font-mono tabular-nums font-bold px-2 py-0.5 rounded ${
+                      !cashKeys.length
+                        ? 'text-slate-400'
+                        : totalCashOnHand - grandTotalSales < 0
+                        ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
+                        : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                    }`}
+                  >
+                    {cashKeys.length ? `₱${acct(totalCashOnHand - grandTotalSales)}` : '—'}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="p-3 space-y-2 text-xs">
-              <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-600 dark:text-slate-400">Should be Sales:</span>
-                <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
-                  ₱{acct(grandTotalSales)}
-                </span>
+
+            {/* Transfer From Breakdown by Location */}
+            <div className="rounded-xl border border-teal-200 dark:border-teal-900/60 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+              <div className="bg-teal-50 dark:bg-teal-950/60 px-4 py-2.5 border-b border-teal-200 dark:border-teal-900/60 font-semibold text-xs text-teal-900 dark:text-teal-200 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
+                  <span>Transfer From (By Location)</span>
+                </div>
+                {onSelectTab && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectTab('tf')}
+                    className="text-[11px] text-teal-700 dark:text-teal-300 hover:text-teal-900 dark:hover:text-teal-100 font-bold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Open Tab</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
               </div>
-              <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-600 dark:text-slate-400">Cash on Hand:</span>
-                <span className="font-mono tabular-nums font-medium text-slate-900 dark:text-slate-100">
-                  {cashKeys.length ? `₱${acct(totalCashOnHand)}` : '—'}
-                </span>
+              <div className="p-3 space-y-2 text-xs">
+                {transferFromSummary.locations.length === 0 ? (
+                  <p className="text-slate-400 italic py-2 text-center">
+                    No transfers received by {state.inv}.
+                  </p>
+                ) : (
+                  <>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {transferFromSummary.locations.map(([loc, data]) => (
+                        <div key={loc} className="flex items-center justify-between py-1.5">
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
+                            {loc}:
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                              {q(data.qty)}u
+                            </span>
+                            <span className="font-mono tabular-nums font-semibold text-teal-800 dark:text-teal-300 min-w-[65px] text-right">
+                              ₱{acct(data.netCost)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800 font-bold">
+                      <span className="text-teal-950 dark:text-teal-200">
+                        Total Net Cost:
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-slate-600 dark:text-slate-300">
+                          {q(transferFromSummary.totalQty)}u
+                        </span>
+                        <span className="font-mono tabular-nums text-teal-700 dark:text-teal-300 min-w-[65px] text-right">
+                          ₱{acct(transferFromSummary.totalCost)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
-              <div className="flex items-center justify-between py-1">
-                <span className="text-slate-600 dark:text-slate-400 font-medium">Over / Short:</span>
-                <span
-                  className={`font-mono tabular-nums font-bold px-2 py-0.5 rounded ${
-                    !cashKeys.length
-                      ? 'text-slate-400'
-                      : totalCashOnHand - grandTotalSales < 0
-                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400'
-                      : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
-                  }`}
-                >
-                  {cashKeys.length ? `₱${acct(totalCashOnHand - grandTotalSales)}` : '—'}
-                </span>
+            </div>
+
+            {/* Transfer TO & Bad Order Breakdown by Location */}
+            <div className="rounded-xl border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-slate-900 shadow-xs overflow-hidden">
+              <div className="bg-rose-50 dark:bg-rose-950/60 px-4 py-2.5 border-b border-rose-200 dark:border-rose-900/60 font-semibold text-xs text-rose-900 dark:text-rose-200 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400" />
+                  <span>Transfer TO &amp; Bad Order</span>
+                </div>
+                {onSelectTab && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectTab('tt')}
+                    className="text-[11px] text-rose-700 dark:text-rose-300 hover:text-rose-900 dark:hover:text-rose-100 font-bold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Open Tab</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+              <div className="p-3 space-y-2 text-xs">
+                {transferToSummary.locations.length === 0 && transferToSummary.totalBadQty === 0 ? (
+                  <p className="text-slate-400 italic py-2 text-center">
+                    No transfers to or bad orders recorded.
+                  </p>
+                ) : (
+                  <>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {transferToSummary.locations.map(([loc, data]) => (
+                        <div key={loc} className="flex items-center justify-between py-1.5">
+                          <span className="font-medium text-slate-700 dark:text-slate-300">
+                            {loc}:
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                              {q(data.qty)}u
+                            </span>
+                            <span className="font-mono tabular-nums font-semibold text-teal-800 dark:text-teal-300 min-w-[65px] text-right">
+                              ₱{acct(data.netCost)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      {transferToSummary.totalBadQty > 0 && (
+                        <div className="flex items-center justify-between py-1.5 text-rose-700 dark:text-rose-400">
+                          <span className="font-medium">
+                            Bad Order:
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-mono">
+                              {q(transferToSummary.totalBadQty)}u
+                            </span>
+                            <span className="font-mono tabular-nums font-semibold min-w-[65px] text-right">
+                              ₱{acct(transferToSummary.totalBadCost)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800 font-bold">
+                      <span className="text-slate-900 dark:text-slate-100">
+                        Total TO + Bad:
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-slate-600 dark:text-slate-300">
+                          {q(transferToSummary.totalTtQty + transferToSummary.totalBadQty)}u
+                        </span>
+                        <span className="font-mono tabular-nums text-rose-700 dark:text-rose-400 min-w-[65px] text-right">
+                          ₱{acct(transferToSummary.totalTtCost + transferToSummary.totalBadCost)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

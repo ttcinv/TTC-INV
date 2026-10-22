@@ -1228,3 +1228,295 @@ export function exportProfitAndLoss(state: AppState): void {
   downloadWorkbook(wb, `Profit_and_Loss_${state.inv.replace(/\s+/g, '_')}_${state.start}.xlsx`);
 }
 
+// ----------------- TRANSFER FROM EXPORT -----------------
+
+export function exportTransferFromData(
+  state: AppState,
+  startDate: string,
+  endDate: string,
+  locations: string[]
+): void {
+  // Filter active location rows
+  const activeRows = state.rows.filter(
+    r => r.loc === state.inv && r.no !== '' && r.date >= startDate && r.date <= endDate
+  );
+
+  // Group transfer quantities by item and source location
+  const itemQtyMap: Record<number, Record<string, number>> = {};
+  activeRows.forEach(r => {
+    const no = r.no as number;
+    const qty = num(r.tf);
+    if (!itemQtyMap[no]) itemQtyMap[no] = {};
+    const srcLoc = (r.tfl || 'Unspecified').trim();
+    itemQtyMap[no][srcLoc] = (itemQtyMap[no][srcLoc] || 0) + qty;
+  });
+
+  // Extract categories
+  const catSet = new Set<string>();
+  state.items.forEach(it => {
+    if (it.cat) catSet.add(it.cat);
+  });
+  const cats = Array.from(catSet).sort((a, b) => a.localeCompare(b));
+
+  // Sheet 1: Quantity by Category
+  const qtyHeader = ['Item Description', ...locations];
+  const qtyAoa: any[][] = [
+    ['TRANSFER FROM — QUANTITY BY LOCATION MATRIX'],
+    [`Branch: ${state.inv}  |  Period: ${fd(startDate)} to ${fd(endDate)}`],
+    []
+  ];
+
+  const grandColTotalsQty: Record<string, number> = {};
+  locations.forEach(l => { grandColTotalsQty[l] = 0; });
+
+  cats.forEach(cat => {
+    const catItems = state.items
+      .filter(it => it.cat === cat)
+      .sort((a, b) => a.desc.localeCompare(b.desc) || a.no - b.no);
+
+    if (catItems.length === 0) return;
+
+    qtyAoa.push([`CATEGORY: ${cat.toUpperCase()}`]);
+    qtyAoa.push(qtyHeader);
+
+    const catTotalsQty: Record<string, number> = {};
+    locations.forEach(l => { catTotalsQty[l] = 0; });
+
+    catItems.forEach(it => {
+      const rowQtys = itemQtyMap[it.no] || {};
+      const locValues = locations.map(l => {
+        const v = rowQtys[l] || 0;
+        catTotalsQty[l] = (catTotalsQty[l] || 0) + v;
+        grandColTotalsQty[l] = (grandColTotalsQty[l] || 0) + v;
+        return v === 0 ? '' : v;
+      });
+      qtyAoa.push([it.desc, ...locValues]);
+    });
+
+    qtyAoa.push(['Total', ...locations.map(l => (catTotalsQty[l] === 0 ? '' : catTotalsQty[l]))]);
+    qtyAoa.push([]);
+  });
+
+  qtyAoa.push(['GRAND TOTAL', ...locations.map(l => (grandColTotalsQty[l] === 0 ? '' : grandColTotalsQty[l]))]);
+
+  // Sheet 2: Net of VAT Cost by Category
+  const costHeader = ['Item Description', ...locations];
+  const costAoa: any[][] = [
+    ['TRANSFER FROM — NET OF VAT COST MATRIX (PICKED UP IN MONTHLY SUMMARY)'],
+    [`Branch: ${state.inv}  |  Period: ${fd(startDate)} to ${fd(endDate)}`],
+    []
+  ];
+
+  const grandColTotalsCost: Record<string, number> = {};
+  locations.forEach(l => { grandColTotalsCost[l] = 0; });
+
+  cats.forEach(cat => {
+    const catItems = state.items
+      .filter(it => it.cat === cat)
+      .sort((a, b) => a.desc.localeCompare(b.desc) || a.no - b.no);
+
+    if (catItems.length === 0) return;
+
+    costAoa.push([`CATEGORY: ${cat.toUpperCase()}`]);
+    costAoa.push(costHeader);
+
+    const catTotalsCost: Record<string, number> = {};
+    locations.forEach(l => { catTotalsCost[l] = 0; });
+
+    catItems.forEach(it => {
+      const rowQtys = itemQtyMap[it.no] || {};
+      const uCost = unitCost(it);
+      const isVat = it.vat !== 'NVAT';
+      const calcNet = (qty: number) => (isVat ? (qty * uCost) / 1.12 : qty * uCost);
+
+      const locCostValues = locations.map(l => {
+        const qVal = rowQtys[l] || 0;
+        const c = calcNet(qVal);
+        catTotalsCost[l] = (catTotalsCost[l] || 0) + c;
+        grandColTotalsCost[l] = (grandColTotalsCost[l] || 0) + c;
+        return c === 0 ? '' : Number(c.toFixed(2));
+      });
+
+      costAoa.push([it.desc, ...locCostValues]);
+    });
+
+    costAoa.push(['Total Net of VAT Cost', ...locations.map(l => (catTotalsCost[l] === 0 ? '' : Number(catTotalsCost[l].toFixed(2))))]);
+    costAoa.push([]);
+  });
+
+  costAoa.push(['GRAND TOTAL NET OF VAT COST', ...locations.map(l => (grandColTotalsCost[l] === 0 ? '' : Number(grandColTotalsCost[l].toFixed(2))))]);
+
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.aoa_to_sheet(qtyAoa);
+  const ws2 = XLSX.utils.aoa_to_sheet(costAoa);
+
+  ws1['!cols'] = [{ wch: 32 }, ...locations.map(() => ({ wch: 20 }))];
+  ws2['!cols'] = [{ wch: 32 }, ...locations.map(() => ({ wch: 20 }))];
+
+  XLSX.utils.book_append_sheet(wb, ws1, 'Transfer From (Qty)');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Transfer From (Net Cost)');
+
+  downloadWorkbook(wb, `Transfer_From_${state.inv.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.xlsx`);
+}
+
+// ----------------- TRANSFER TO EXPORT -----------------
+
+export function exportTransferToData(
+  state: AppState,
+  startDate: string,
+  endDate: string,
+  locations: string[]
+): void {
+  // Filter active location rows
+  const activeRows = state.rows.filter(
+    r => r.loc === state.inv && r.no !== '' && r.date >= startDate && r.date <= endDate
+  );
+
+  // Group transfer to quantities by item and destination location, plus bad order
+  const itemQtyMap: Record<number, Record<string, number>> = {};
+  const itemBadMap: Record<number, number> = {};
+
+  activeRows.forEach(r => {
+    const no = r.no as number;
+    const ttQty = num(r.tt);
+    const badQty = num(r.bad);
+
+    if (!itemQtyMap[no]) itemQtyMap[no] = {};
+    if (ttQty > 0) {
+      const destLoc = (r.ttl || 'Unspecified').trim();
+      itemQtyMap[no][destLoc] = (itemQtyMap[no][destLoc] || 0) + ttQty;
+    }
+    if (badQty > 0) {
+      itemBadMap[no] = (itemBadMap[no] || 0) + badQty;
+    }
+  });
+
+  // Extract categories
+  const catSet = new Set<string>();
+  state.items.forEach(it => {
+    if (it.cat) catSet.add(it.cat);
+  });
+  const cats = Array.from(catSet).sort((a, b) => a.localeCompare(b));
+
+  // Sheet 1: Quantity by Category with Bad Order in last column
+  const qtyHeader = ['Item Description', ...locations, 'Bad Order'];
+  const qtyAoa: any[][] = [
+    ['TRANSFER TO & BAD ORDER — QUANTITY BY LOCATION MATRIX'],
+    [`Branch: ${state.inv}  |  Period: ${fd(startDate)} to ${fd(endDate)}`],
+    []
+  ];
+
+  const grandColTotalsQty: Record<string, number> = {};
+  locations.forEach(l => { grandColTotalsQty[l] = 0; });
+  let grandTotalBadQty = 0;
+
+  cats.forEach(cat => {
+    const catItems = state.items
+      .filter(it => it.cat === cat)
+      .sort((a, b) => a.desc.localeCompare(b.desc) || a.no - b.no);
+
+    if (catItems.length === 0) return;
+
+    qtyAoa.push([`CATEGORY: ${cat.toUpperCase()}`]);
+    qtyAoa.push(qtyHeader);
+
+    const catTotalsQty: Record<string, number> = {};
+    locations.forEach(l => { catTotalsQty[l] = 0; });
+    let catBadQty = 0;
+
+    catItems.forEach(it => {
+      const rowQtys = itemQtyMap[it.no] || {};
+      const badQ = itemBadMap[it.no] || 0;
+      catBadQty += badQ;
+      grandTotalBadQty += badQ;
+
+      const locValues = locations.map(l => {
+        const v = rowQtys[l] || 0;
+        catTotalsQty[l] = (catTotalsQty[l] || 0) + v;
+        grandColTotalsQty[l] = (grandColTotalsQty[l] || 0) + v;
+        return v === 0 ? '' : v;
+      });
+      qtyAoa.push([it.desc, ...locValues, badQ === 0 ? '' : badQ]);
+    });
+
+    qtyAoa.push(['Total', ...locations.map(l => (catTotalsQty[l] === 0 ? '' : catTotalsQty[l])), catBadQty === 0 ? '' : catBadQty]);
+    qtyAoa.push([]);
+  });
+
+  qtyAoa.push(['GRAND TOTAL', ...locations.map(l => (grandColTotalsQty[l] === 0 ? '' : grandColTotalsQty[l])), grandTotalBadQty === 0 ? '' : grandTotalBadQty]);
+
+  // Sheet 2: Net of VAT Cost by Category with Bad Order in last column
+  const costHeader = ['Item Description', ...locations, 'Bad Order'];
+  const costAoa: any[][] = [
+    ['TRANSFER TO & BAD ORDER — NET OF VAT COST MATRIX (PICKED UP IN MONTHLY SUMMARY)'],
+    [`Branch: ${state.inv}  |  Period: ${fd(startDate)} to ${fd(endDate)}`],
+    []
+  ];
+
+  const grandColTotalsCost: Record<string, number> = {};
+  locations.forEach(l => { grandColTotalsCost[l] = 0; });
+  let grandTotalBadCost = 0;
+
+  cats.forEach(cat => {
+    const catItems = state.items
+      .filter(it => it.cat === cat)
+      .sort((a, b) => a.desc.localeCompare(b.desc) || a.no - b.no);
+
+    if (catItems.length === 0) return;
+
+    costAoa.push([`CATEGORY: ${cat.toUpperCase()}`]);
+    costAoa.push(costHeader);
+
+    const catTotalsCost: Record<string, number> = {};
+    locations.forEach(l => { catTotalsCost[l] = 0; });
+    let catBadCost = 0;
+
+    catItems.forEach(it => {
+      const rowQtys = itemQtyMap[it.no] || {};
+      const badQ = itemBadMap[it.no] || 0;
+      const uCost = unitCost(it);
+      const isVat = it.vat !== 'NVAT';
+      const calcNet = (qty: number) => (isVat ? (qty * uCost) / 1.12 : qty * uCost);
+
+      const locCostValues = locations.map(l => {
+        const qVal = rowQtys[l] || 0;
+        const c = calcNet(qVal);
+        catTotalsCost[l] = (catTotalsCost[l] || 0) + c;
+        grandColTotalsCost[l] = (grandColTotalsCost[l] || 0) + c;
+        return c === 0 ? '' : Number(c.toFixed(2));
+      });
+
+      const badCost = calcNet(badQ);
+      catBadCost += badCost;
+      grandTotalBadCost += badCost;
+
+      costAoa.push([it.desc, ...locCostValues, badCost === 0 ? '' : Number(badCost.toFixed(2))]);
+    });
+
+    costAoa.push([
+      'Total Net of VAT Cost',
+      ...locations.map(l => (catTotalsCost[l] === 0 ? '' : Number(catTotalsCost[l].toFixed(2)))),
+      catBadCost === 0 ? '' : Number(catBadCost.toFixed(2))
+    ]);
+    costAoa.push([]);
+  });
+
+  costAoa.push([
+    'GRAND TOTAL NET OF VAT COST',
+    ...locations.map(l => (grandColTotalsCost[l] === 0 ? '' : Number(grandColTotalsCost[l].toFixed(2)))),
+    Number(grandTotalBadCost.toFixed(2))
+  ]);
+
+  const wb = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.aoa_to_sheet(qtyAoa);
+  const ws2 = XLSX.utils.aoa_to_sheet(costAoa);
+
+  ws1['!cols'] = [{ wch: 32 }, ...locations.map(() => ({ wch: 20 })), { wch: 20 }];
+  ws2['!cols'] = [{ wch: 32 }, ...locations.map(() => ({ wch: 20 })), { wch: 20 }];
+
+  XLSX.utils.book_append_sheet(wb, ws1, 'Transfer To (Qty)');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Transfer To (Net Cost)');
+
+  downloadWorkbook(wb, `Transfer_To_${state.inv.replace(/\s+/g, '_')}_${startDate}_to_${endDate}.xlsx`);
+}
+

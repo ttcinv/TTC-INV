@@ -296,6 +296,32 @@ export const SetupTab: React.FC<SetupTabProps> = ({
           </div>
         </div>
 
+        {/* System & Data Management Card */}
+        <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-bold text-sm pb-2 border-b border-slate-200 dark:border-slate-800">
+            <RotateCcw className="w-4 h-4 text-teal-700 dark:text-teal-400" />
+            <span>Sample Data & Factory Reset</span>
+          </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+            Need to test sample records or start fresh? Restoring sample data populates standard test
+            items, past shift records, and sample branch locations.
+          </p>
+
+          {canAdmin && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleRestoreSampleData}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                <span>Restore Sample Data</span>
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Locations Manager Card */}
         <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
@@ -315,9 +341,9 @@ export const SetupTab: React.FC<SetupTabProps> = ({
             )}
           </div>
 
-          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-1">
             {state.locs.map((loc, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex items-center gap-1.5 min-w-0">
                 <input
                   type="text"
                   disabled={!canAdmin}
@@ -326,13 +352,13 @@ export const SetupTab: React.FC<SetupTabProps> = ({
                   onKeyDown={e => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                   }}
-                  className="flex-1 px-2.5 py-1.5 text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-600"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-600 truncate"
                 />
                 {canAdmin && state.locs.length > 1 && (
                   <button
                     type="button"
                     onClick={() => handleDeleteLocation(i)}
-                    className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    className="p-1.5 shrink-0 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                     title="Remove location"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -362,9 +388,9 @@ export const SetupTab: React.FC<SetupTabProps> = ({
             )}
           </div>
 
-          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-1">
             {state.cashiers.map((cashier, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex items-center gap-1.5 min-w-0">
                 <input
                   type="text"
                   disabled={!canAdmin}
@@ -373,13 +399,13 @@ export const SetupTab: React.FC<SetupTabProps> = ({
                   onKeyDown={e => {
                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                   }}
-                  className="flex-1 px-2.5 py-1.5 text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-600"
+                  className="flex-1 min-w-0 px-2.5 py-1.5 text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-600 truncate"
                 />
                 {canAdmin && state.cashiers.length > 1 && (
                   <button
                     type="button"
                     onClick={() => handleDeleteCashier(i)}
-                    className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                    className="p-1.5 shrink-0 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                     title="Remove cashier"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -388,32 +414,6 @@ export const SetupTab: React.FC<SetupTabProps> = ({
               </div>
             ))}
           </div>
-        </div>
-
-        {/* System & Data Management Card */}
-        <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 shadow-xs space-y-4">
-          <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 font-bold text-sm pb-2 border-b border-slate-200 dark:border-slate-800">
-            <RotateCcw className="w-4 h-4 text-teal-700 dark:text-teal-400" />
-            <span>Sample Data & Factory Reset</span>
-          </div>
-
-          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Need to test sample records or start fresh? Restoring sample data populates standard test
-            items, past shift records, and sample branch locations.
-          </p>
-
-          {canAdmin && (
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={handleRestoreSampleData}
-                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-                <span>Restore Sample Data</span>
-              </button>
-            </div>
-          )}
         </div>
       </div>
 

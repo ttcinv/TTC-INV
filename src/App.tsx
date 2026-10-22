@@ -13,6 +13,8 @@ import {
 import { Header } from './components/Header';
 import { TabsNav } from './components/TabsNav';
 import { DataEntryTab } from './components/DataEntryTab';
+import { TransferFromTab } from './components/TransferFromTab';
+import { TransferToTab } from './components/TransferToTab';
 import { SummaryViewTab } from './components/SummaryViewTab';
 import { CashDetailsSummaryTab } from './components/CashDetailsSummaryTab';
 import { ProfitAndLossTab } from './components/ProfitAndLossTab';
@@ -218,6 +220,8 @@ export default function App() {
   // Location Access Guard
   const locationDenied =
     (currentTab === 'entry' ||
+      currentTab === 'tf' ||
+      currentTab === 'tt' ||
       currentTab.startsWith('w') ||
       currentTab === 'mo' ||
       currentTab === 'pnl' ||
@@ -317,6 +321,7 @@ export default function App() {
                   tabKey={currentTab}
                   canAdmin={canAdmin}
                   onUpdateState={updater => handleUpdateState(updater)}
+                  onSelectTab={setCurrentTab}
                 />
               );
             })()}
@@ -330,6 +335,16 @@ export default function App() {
                 tabKey="mo"
                 canAdmin={canAdmin}
                 onUpdateState={updater => handleUpdateState(updater)}
+                onSelectTab={setCurrentTab}
+              />
+            )}
+
+            {currentTab === 'cash' && (
+              <CashDetailsSummaryTab
+                state={state}
+                canEdit={canEditData()}
+                canAdmin={canAdmin}
+                onUpdateState={handleUpdateState}
               />
             )}
 
@@ -340,12 +355,23 @@ export default function App() {
               />
             )}
 
-            {currentTab === 'cash' && (
-              <CashDetailsSummaryTab
+            {currentTab === 'tf' && (
+              <TransferFromTab
                 state={state}
                 canEdit={canEditData()}
                 canAdmin={canAdmin}
                 onUpdateState={handleUpdateState}
+                onNavigateToMonthlySummary={() => setCurrentTab('mo')}
+              />
+            )}
+
+            {currentTab === 'tt' && (
+              <TransferToTab
+                state={state}
+                canEdit={canEditData()}
+                canAdmin={canAdmin}
+                onUpdateState={handleUpdateState}
+                onNavigateToMonthlySummary={() => setCurrentTab('mo')}
               />
             )}
 

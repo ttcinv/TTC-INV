@@ -158,15 +158,25 @@ export const CashDetailsSummaryTab: React.FC<CashDetailsSummaryTabProps> = ({
   const allColumns = [...cols, sum];
 
   const handlePaymentChange = (weekStartDate: string, rawVal: string) => {
-    const clean = parseFloat(rawVal.replace(/,/g, ''));
-    const val = isNaN(clean) ? 0 : clean;
-    onUpdateState(prev => ({
-      ...prev,
-      cpay: {
-        ...prev.cpay,
-        [`${prev.inv}|${weekStartDate}`]: val
+    const trimmed = rawVal.trim().replace(/,/g, '');
+    onUpdateState(prev => {
+      const nextCpay = { ...prev.cpay };
+      const k = `${prev.inv}|${weekStartDate}`;
+      if (trimmed === '') {
+        delete nextCpay[k];
+      } else {
+        const clean = parseFloat(trimmed);
+        if (isNaN(clean) || clean === 0) {
+          delete nextCpay[k];
+        } else {
+          nextCpay[k] = clean;
+        }
       }
-    }));
+      return {
+        ...prev,
+        cpay: nextCpay
+      };
+    });
   };
 
   // Over/Short daily breakdown model
@@ -318,15 +328,16 @@ export const CashDetailsSummaryTab: React.FC<CashDetailsSummaryTabProps> = ({
                         type="text"
                         inputMode="decimal"
                         disabled={!canEdit}
-                        value={f2(col.pay)}
+                        value={col.pay && col.pay !== 0 ? f2(col.pay) : ''}
                         onChange={e => handlePaymentChange(col.a, e.target.value)}
+                        placeholder=""
                         className="w-24 text-right font-mono tabular-nums px-1.5 py-1 text-xs bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:bg-white dark:focus:bg-slate-800 rounded focus:outline-none focus:ring-1 focus:ring-teal-600"
                       />
                     </div>
                   </td>
                 ))}
                 <td className="py-2 px-3 text-right font-mono tabular-nums font-semibold border-l border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100">
-                  ₱{f2(sum.pay)}
+                  {sum.pay > 0 ? `₱${f2(sum.pay)}` : '—'}
                 </td>
               </tr>
 

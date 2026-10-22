@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Store, Lock, User as UserIcon, Shield, Sparkles, RotateCcw } from 'lucide-react';
-import { User, AppState } from '../types';
-import { sha256, getSeedState } from '../utils/helpers';
+import { Store, Lock, User as UserIcon, RotateCcw } from 'lucide-react';
+import { User } from '../types';
+import { sha256 } from '../utils/helpers';
 
 interface LoginModalProps {
   users: User[];
@@ -18,8 +18,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const activeUsers = users.filter(u => u.user && u.name);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,10 +54,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleQuickLogin = (userObj: User) => {
-    onLoginSuccess(userObj);
   };
 
   return (
@@ -131,47 +125,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           </button>
         </form>
 
-        {/* Quick Demo Login Helper */}
-        {activeUsers.length > 0 && (
-          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2.5">
-            <div className="flex items-center justify-between text-[11px] text-slate-500">
-              <span className="font-semibold uppercase tracking-wider text-slate-400">
-                Quick Sign-In (Demo Access)
-              </span>
-              <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-            </div>
-
-            <div className="grid grid-cols-1 gap-2">
-              {activeUsers.map(userItem => (
-                <button
-                  key={userItem.id}
-                  type="button"
-                  onClick={() => handleQuickLogin(userItem)}
-                  className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 hover:bg-teal-50/70 dark:bg-slate-800/80 dark:hover:bg-teal-950/40 border border-slate-200 dark:border-slate-700 text-left transition-colors cursor-pointer group"
-                >
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 group-hover:text-teal-900 dark:group-hover:text-teal-300">
-                      {userItem.name}
-                    </div>
-                    <div className="text-[10px] text-slate-500 font-mono">
-                      Username: {userItem.user}
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
-                    {userItem.all
-                      ? 'Administrator'
-                      : userItem.acc.includes('View Only')
-                      ? 'View Only'
-                      : 'Staff'}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Reset Option */}
-        <div className="text-center pt-2">
+        <div className="text-center pt-2 border-t border-slate-200 dark:border-slate-800">
           <button
             type="button"
             onClick={onRestoreSampleData}

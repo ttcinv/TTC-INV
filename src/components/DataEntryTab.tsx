@@ -61,10 +61,15 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
     openAbove: boolean;
   } | null>(null);
   const [tableItemSearch, setTableItemSearch] = useState('');
+  const [showToolbarSearchPreview, setShowToolbarSearchPreview] = useState(false);
+  const [highlightedToolbarIndex, setHighlightedToolbarIndex] = useState(0);
   const [msg, setMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const activeInputRef = useRef<HTMLInputElement | null>(null);
+  const highlightedItemRef = useRef<HTMLDivElement>(null);
+  const toolbarSearchRef = useRef<HTMLDivElement>(null);
+  const toolbarInputRef = useRef<HTMLInputElement>(null);
 
   // Computations
   const computed = computeRows(state.rows, state.items);
@@ -163,10 +168,25 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
         setActiveItemSearchIndex(null);
         setDropdownCoords(null);
       }
+      if (
+        toolbarSearchRef.current &&
+        !toolbarSearchRef.current.contains(target) &&
+        toolbarInputRef.current &&
+        !toolbarInputRef.current.contains(target)
+      ) {
+        setShowToolbarSearchPreview(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Auto-scroll highlighted item in preview dropdown into view
+  useEffect(() => {
+    if (highlightedItemRef.current) {
+      highlightedItemRef.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [highlightedItemIndex]);
 
   // Update dropdown coordinates on window or table scroll
   useEffect(() => {
@@ -365,19 +385,62 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
     );
   };
 
-  // Filter items for autocomplete
-  const filteredItems = state.items.filter(it => {
-    if (!searchTerm.trim()) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      it.desc.toLowerCase().includes(term) ||
-      it.code.toLowerCase().includes(term) ||
-      it.cat.toLowerCase().includes(term) ||
-      it.sys.toLowerCase().includes(term) ||
-      String(it.srp).includes(term) ||
-      String(it.no).includes(term)
-    );
-  });
+  // Filter items for row item autocomplete with real-time preview ranking
+  const filteredItems = useMemo(() => {
+    if (!searchTerm.trim()) return state.items;
+    const term = searchTerm.toLowerCase().trim();
+    return [...state.items]
+      .filter(it => {
+        return (
+          it.desc.toLowerCase().includes(term) ||
+          it.code.toLowerCase().includes(term) ||
+          it.cat.toLowerCase().includes(term) ||
+          it.sys.toLowerCase().includes(term) ||
+          String(it.srp).includes(term) ||
+          String(it.no).includes(term)
+        );
+      })
+      .sort((a, b) => {
+        const aDesc = a.desc.toLowerCase();
+        const bDesc = b.desc.toLowerCase();
+        const aStarts = aDesc.startsWith(term);
+        const bStarts = bDesc.startsWith(term);
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
+        const aIndex = aDesc.indexOf(term);
+        const bIndex = bDesc.indexOf(term);
+        if (aIndex !== -1 && bIndex !== -1 && aIndex !== bIndex) {
+          return aIndex - bIndex;
+        }
+        return a.no - b.no;
+      });
+  }, [state.items, searchTerm]);
+
+  // Filter items for toolbar search preview while typing letters or numbers
+  const toolbarFilteredItems = useMemo(() => {
+    if (!tableItemSearch.trim()) return [];
+    const term = tableItemSearch.toLowerCase().trim();
+    return [...state.items]
+      .filter(it => {
+        return (
+          it.desc.toLowerCase().includes(term) ||
+          it.code.toLowerCase().includes(term) ||
+          it.cat.toLowerCase().includes(term) ||
+          it.sys.toLowerCase().includes(term) ||
+          String(it.srp).includes(term) ||
+          String(it.no).includes(term)
+        );
+      })
+      .sort((a, b) => {
+        const aDesc = a.desc.toLowerCase();
+        const bDesc = b.desc.toLowerCase();
+        const aStarts = aDesc.startsWith(term);
+        const bStarts = bDesc.startsWith(term);
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
+        return a.no - b.no;
+      });
+  }, [state.items, tableItemSearch]);
 
   const selectItemForCurrentRow = (itemNo: number) => {
     if (activeItemSearchIndex === null) return;
@@ -387,6 +450,7 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
 
     handleCellChange(activeItemSearchIndex, 'no', itemNo);
     setActiveItemSearchIndex(null);
+    setDropdownCoords(null);
     setSearchTerm('');
 
     onUpdateState(
@@ -486,6 +550,113 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
           </div>
         </div>
 
+        {/* Center: Search Item Description with Real-time Preview while typing */}
+        <div className="relative min-w-[220px] sm:min-w-[280px] max-w-sm flex-1">
+          <div className="relative flex items-center">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
+            <input
+              ref={toolbarInputRef}
+              type="text"
+              value={tableItemSearch}
+              onChange={e => {
+                setTableItemSearch(e.target.value);
+                setShowToolbarSearchPreview(true);
+                setHighlightedToolbarIndex(0);
+              }}
+              onFocus={() => setShowToolbarSearchPreview(true)}
+              onKeyDown={e => {
+                if (!showToolbarSearchPreview || toolbarFilteredItems.length === 0) return;
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setHighlightedToolbarIndex(prev => Math.min(prev + 1, toolbarFilteredItems.length - 1));
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setHighlightedToolbarIndex(prev => Math.max(prev - 1, 0));
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (toolbarFilteredItems[highlightedToolbarIndex]) {
+                    setTableItemSearch(toolbarFilteredItems[highlightedToolbarIndex].desc);
+                    setShowToolbarSearchPreview(false);
+                  }
+                } else if (e.key === 'Escape') {
+                  setShowToolbarSearchPreview(false);
+                }
+              }}
+              placeholder="Search item description..."
+              className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-teal-600 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+            />
+            {tableItemSearch && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTableItemSearch('');
+                  setShowToolbarSearchPreview(false);
+                }}
+                className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Toolbar Search Preview Dropdown while typing letters or numbers */}
+          {showToolbarSearchPreview && tableItemSearch.trim() && (
+            <div
+              ref={toolbarSearchRef}
+              className="absolute left-0 top-full mt-1.5 z-40 w-full min-w-[320px] max-w-md max-h-72 overflow-y-auto rounded-xl bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 shadow-2xl p-2 text-xs divide-y divide-slate-100 dark:divide-slate-800"
+            >
+              <div className="pb-1.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                <span className="font-medium flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                  <span>Item Preview: "{tableItemSearch}"</span>
+                </span>
+                <span className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-semibold">
+                  {toolbarFilteredItems.length} found
+                </span>
+              </div>
+
+              <div className="pt-1.5 overflow-y-auto max-h-56 space-y-1">
+                {toolbarFilteredItems.length === 0 ? (
+                  <div className="py-4 text-center text-slate-500 italic text-xs">
+                    No items matching "{tableItemSearch}"
+                  </div>
+                ) : (
+                  toolbarFilteredItems.map((itemChoice, cIdx) => {
+                    return (
+                      <div
+                        key={itemChoice.no}
+                        onClick={() => {
+                          setTableItemSearch(itemChoice.desc);
+                          setShowToolbarSearchPreview(false);
+                        }}
+                        onMouseEnter={() => setHighlightedToolbarIndex(cIdx)}
+                        className={`px-3 py-2 rounded-lg cursor-pointer transition-colors flex items-center justify-between gap-3 ${
+                          highlightedToolbarIndex === cIdx
+                            ? 'bg-teal-50 dark:bg-teal-900/50 text-teal-950 dark:text-teal-100'
+                            : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">
+                            {highlightMatch(itemChoice.desc, tableItemSearch)}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="font-bold font-mono text-teal-700 dark:text-teal-400 text-xs">
+                            ₱{f2(itemChoice.srp)}
+                          </div>
+                          <div className="text-[9px] text-slate-400 font-mono">SRP</div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Right: Actions */}
         <div className="flex flex-wrap items-center gap-2">
           {canEdit && (
@@ -540,6 +711,28 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
           )}
         </div>
       </div>
+
+      {/* Active Search Filter Banner */}
+      {tableItemSearch.trim() && (
+        <div className="p-2.5 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 rounded-lg text-xs text-teal-900 dark:text-teal-200 flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <Search className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
+            <span>
+              Showing {currentRowsWithIndex.length} row(s) matching <strong className="font-mono">"{tableItemSearch}"</strong>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setTableItemSearch('');
+              setShowToolbarSearchPreview(false);
+            }}
+            className="text-xs text-teal-700 hover:text-teal-900 dark:text-teal-400 dark:hover:text-teal-200 underline font-medium cursor-pointer"
+          >
+            Clear Filter
+          </button>
+        </div>
+      )}
 
       {msg && (
         <div className="p-2.5 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 rounded-lg text-xs text-teal-800 dark:text-teal-300 flex items-center justify-between">
@@ -697,7 +890,7 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
                               {getWeekOf(r.date, state.start, state.cut)}
                             </td>
 
-                            {/* Item Description (Interactive dropdown) */}
+                            {/* Item Description (Interactive with Real-time Preview while typing letters or numbers) */}
                             <td className="p-0.5 border-r border-slate-200 dark:border-slate-800 relative">
                               <div className="relative">
                                 <input
@@ -710,14 +903,23 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
                                       ? `${itObj.desc} (SRP ${f2(itObj.srp)})`
                                       : ''
                                   }
-                                  placeholder="Search item..."
-                                  onFocus={() => {
+                                  placeholder="Search item description..."
+                                  onFocus={e => {
                                     if (!canEdit) return;
                                     setActiveItemSearchIndex(i);
-                                    setSearchTerm('');
+                                    setSearchTerm(itObj ? itObj.desc : '');
                                     setHighlightedItemIndex(0);
+                                    activeInputRef.current = e.currentTarget;
+                                    updateDropdownCoords(e.currentTarget);
+                                    e.currentTarget.select();
                                   }}
-                                  onChange={e => setSearchTerm(e.target.value)}
+                                  onChange={e => {
+                                    setSearchTerm(e.target.value);
+                                    setHighlightedItemIndex(0);
+                                    if (activeInputRef.current) {
+                                      updateDropdownCoords(activeInputRef.current);
+                                    }
+                                  }}
                                   onKeyDown={e => {
                                     if (activeItemSearchIndex !== i) return;
                                     if (e.key === 'ArrowDown') {
@@ -728,58 +930,30 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
                                     } else if (e.key === 'ArrowUp') {
                                       e.preventDefault();
                                       setHighlightedItemIndex(prev => Math.max(prev - 1, 0));
-                                    } else if (e.key === 'Enter') {
-                                      e.preventDefault();
+                                    } else if (e.key === 'Enter' || e.key === 'Tab') {
                                       if (filteredItems[highlightedItemIndex]) {
+                                        e.preventDefault();
                                         selectItemForCurrentRow(
                                           filteredItems[highlightedItemIndex].no
                                         );
                                       }
                                     } else if (e.key === 'Escape') {
                                       setActiveItemSearchIndex(null);
+                                      setDropdownCoords(null);
                                     }
                                   }}
-                                  className="w-full min-w-0 px-1 py-0.5 text-[10px] 2xl:text-[11px] font-medium bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:bg-white dark:focus:bg-slate-800 focus:border-teal-600 rounded focus:outline-none truncate"
+                                  className={`w-full min-w-0 px-1 py-0.5 text-[10px] 2xl:text-[11px] font-medium bg-transparent border rounded focus:outline-none truncate transition-colors ${
+                                    activeItemSearchIndex === i
+                                      ? 'bg-white dark:bg-slate-800 border-teal-600 ring-1 ring-teal-500 shadow-xs'
+                                      : 'border-transparent hover:border-slate-300 dark:hover:border-slate-600'
+                                  }`}
                                 />
 
-                                {/* Dropdown menu for item picker */}
-                                {activeItemSearchIndex === i && (
-                                  <div
-                                    ref={dropdownRef}
-                                    className="absolute left-0 top-full mt-1 z-50 w-72 max-h-64 overflow-y-auto rounded-lg bg-white dark:bg-slate-850 border border-slate-300 dark:border-slate-700 shadow-xl p-1 text-xs"
-                                  >
-                                    {filteredItems.length === 0 ? (
-                                      <div className="p-3 text-center text-slate-500 italic">
-                                        No matching items found
-                                      </div>
-                                    ) : (
-                                      filteredItems.map((itemChoice, choiceIdx) => (
-                                        <div
-                                          key={itemChoice.no}
-                                          onClick={() => selectItemForCurrentRow(itemChoice.no)}
-                                          onMouseEnter={() => setHighlightedItemIndex(choiceIdx)}
-                                          className={`px-2.5 py-1.5 rounded cursor-pointer transition-colors ${
-                                            highlightedItemIndex === choiceIdx
-                                              ? 'bg-teal-50 dark:bg-teal-900/40 text-teal-900 dark:text-teal-200'
-                                              : 'hover:bg-slate-100 dark:hover:bg-slate-800'
-                                          }`}
-                                        >
-                                          <div className="font-semibold text-slate-900 dark:text-slate-100">
-                                            {itemChoice.desc}{' '}
-                                            <span className="text-teal-700 dark:text-teal-400 font-mono">
-                                              (SRP ₱{f2(itemChoice.srp)})
-                                            </span>
-                                          </div>
-                                          <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
-                                            <span>Line {itemChoice.no}</span>
-                                            <span>·</span>
-                                            <span>{itemChoice.code}</span>
-                                            <span>·</span>
-                                            <span>{itemChoice.cat}</span>
-                                          </div>
-                                        </div>
-                                      ))
-                                    )}
+                                {/* Live preview badge directly under input when active and typing */}
+                                {activeItemSearchIndex === i && filteredItems[0] && searchTerm.trim() && (
+                                  <div className="hidden 2xl:flex items-center justify-between gap-1 text-[9px] text-teal-700 dark:text-teal-400 font-medium px-1.5 py-0.5 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 rounded mt-0.5 truncate">
+                                    <span className="truncate">{filteredItems[0].desc}</span>
+                                    <span className="font-mono font-bold shrink-0">SRP ₱{f2(filteredItems[0].srp)}</span>
                                   </div>
                                 )}
                               </div>
@@ -1141,9 +1315,9 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
                   type="text"
                   inputMode="decimal"
                   disabled={!canEdit}
-                  value={hasCash ? acct(cashOnHandVal) : ''}
+                  value={hasCash ? cashOnHandRaw : ''}
                   onChange={e => handleCashChange(e.target.value)}
-                  placeholder="0.00"
+                  placeholder=""
                   className="w-28 text-right font-mono tabular-nums font-medium px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded focus:bg-white focus:outline-none focus:ring-1 focus:ring-teal-600"
                 />
               </div>
@@ -1246,6 +1420,123 @@ export const DataEntryTab: React.FC<DataEntryTabProps> = ({
           }));
         }}
       />
+
+      {/* Floating Real-Time Preview Dropdown for Item Description (Fixed coordinates to avoid overflow clipping) */}
+      {activeItemSearchIndex !== null && dropdownCoords && (
+        <div
+          ref={dropdownRef}
+          style={{
+            position: 'fixed',
+            top: dropdownCoords.openAbove ? undefined : `${dropdownCoords.top}px`,
+            bottom: dropdownCoords.openAbove ? `${window.innerHeight - dropdownCoords.top}px` : undefined,
+            left: `${dropdownCoords.left}px`,
+            width: `${dropdownCoords.width}px`,
+            height: '300px',
+            zIndex: 9999
+          }}
+          className="h-[300px] max-h-[300px] flex flex-col rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-2xl p-2 text-xs divide-y divide-slate-100 dark:divide-slate-800 animate-in fade-in duration-100"
+        >
+          {/* Preview Header */}
+          <div className="pb-2 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-1.5 font-medium">
+              <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+              <span>
+                {searchTerm.trim() ? (
+                  <>
+                    Previewing items matching <span className="font-bold text-slate-900 dark:text-slate-100 font-mono">"{searchTerm}"</span>
+                  </>
+                ) : (
+                  'Type letters or numbers to preview items'
+                )}
+              </span>
+            </div>
+            <span className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded font-semibold">
+              {filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'}
+            </span>
+          </div>
+
+          {/* Top Match Preview Card when typing letters or numbers */}
+          {searchTerm.trim() && filteredItems.length > 0 && (
+            <div className="py-2 shrink-0">
+              <div
+                onClick={() => selectItemForCurrentRow(filteredItems[0].no)}
+                className="p-2.5 bg-gradient-to-r from-teal-50 to-emerald-50 dark:from-teal-950/40 dark:to-emerald-950/30 rounded-lg border border-teal-200 dark:border-teal-800 cursor-pointer hover:border-teal-400 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-teal-800 dark:text-teal-300 flex items-center gap-1">
+                    <Eye className="w-3 h-3" />
+                    <span>Top Match Preview</span>
+                  </span>
+                  <span className="text-[10px] font-medium bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-200 px-1.5 py-0.5 rounded">
+                    Press Enter ↵
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-semibold text-xs sm:text-sm text-slate-900 dark:text-slate-100 truncate">
+                    {highlightMatch(filteredItems[0].desc, searchTerm)}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-bold text-teal-700 dark:text-teal-400 font-mono text-xs sm:text-sm">
+                      ₱{f2(filteredItems[0].srp)}
+                    </div>
+                    <div className="text-[9px] text-slate-400 font-mono">SRP</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Scrollable list of matching preview items */}
+          <div className="pt-1.5 overflow-y-auto flex-1 min-h-0 space-y-1">
+            {filteredItems.length === 0 ? (
+              <div className="py-6 text-center space-y-1.5">
+                <AlertTriangle className="w-5 h-5 text-amber-500 mx-auto" />
+                <p className="font-semibold text-slate-800 dark:text-slate-200">
+                  No items match "{searchTerm}"
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Try typing item description or price
+                </p>
+              </div>
+            ) : (
+              filteredItems.map((itemChoice, choiceIdx) => {
+                const isSelected = highlightedItemIndex === choiceIdx;
+                return (
+                  <div
+                    key={itemChoice.no}
+                    ref={isSelected ? highlightedItemRef : null}
+                    onClick={() => selectItemForCurrentRow(itemChoice.no)}
+                    onMouseEnter={() => setHighlightedItemIndex(choiceIdx)}
+                    className={`px-3 py-2 rounded-lg cursor-pointer transition-colors flex items-center justify-between gap-3 ${
+                      isSelected
+                        ? 'bg-teal-50 dark:bg-teal-900/50 text-teal-950 dark:text-teal-100 ring-1 ring-teal-500/50'
+                        : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">
+                        {highlightMatch(itemChoice.desc, searchTerm)}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-bold font-mono text-teal-700 dark:text-teal-400 text-xs">
+                        ₱{f2(itemChoice.srp)}
+                      </div>
+                      <div className="text-[9px] text-slate-400 font-mono">SRP</div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Footer Tips */}
+          <div className="pt-2 flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
+            <span>↑↓ Navigate · Enter / Tab to select · Esc to close</span>
+            <span>{filteredItems.length} items</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 
