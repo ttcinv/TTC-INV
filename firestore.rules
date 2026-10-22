@@ -56,15 +56,15 @@ service cloud.firestore {
     match /inventory_data/{docId} {
       allow get: if isValidId(docId);
       allow list: if false;
-      allow create, update: if isValidId(docId) && isSignedIn() && isValidInventoryData(incoming());
+      allow create, update: if isValidId(docId) && isValidInventoryData(incoming());
       allow delete: if isValidId(docId) && isAdmin();
     }
 
     // Audit logs
     match /audit_logs/{logId} {
-      allow get: if isValidId(logId) && isSignedIn();
+      allow get: if isValidId(logId);
       allow list: if isSignedIn();
-      allow create: if isValidId(logId) && isSignedIn() && isValidAuditLog(incoming());
+      allow create: if isValidId(logId) && isValidAuditLog(incoming());
       allow update, delete: if isValidId(logId) && isAdmin();
     }
   }

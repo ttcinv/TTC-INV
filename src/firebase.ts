@@ -5,13 +5,11 @@ import {
   signInWithPopup,
   signOut as fbSignOut,
   onAuthStateChanged,
-  signInAnonymously,
   User as FirebaseUser
 } from 'firebase/auth';
 import {
   getFirestore,
   doc,
-  getDoc,
   getDocFromServer,
   onSnapshot,
   setDoc
@@ -84,28 +82,23 @@ export async function testConnection(): Promise<boolean> {
   }
 }
 
-// Automatically initiate or restore an auth session so rules with isSignedIn() succeed
-export async function ensureAuthSession(): Promise<FirebaseUser | null> {
-  return new Promise((resolve) => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      unsubscribe();
-      if (user) {
-        resolve(user);
-      } else {
-        try {
-          const cred = await signInAnonymously(auth);
-          resolve(cred.user);
-        } catch {
-          resolve(null);
-        }
-      }
-    });
-  });
-}
-
 export async function signInWithGoogle(): Promise<FirebaseUser> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
+    // Sync authenticated user with Cloud SQL backend
+    try {
+      const token = await result.user.getIdToken();
+      await fetch('/api/auth/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name: result.user.displayName })
+      });
+    } catch (syncErr) {
+      console.warn('Backend user sync warning:', syncErr);
+    }
     return result.user;
   } catch (err) {
     console.error('Google Sign-In failed', err);
@@ -118,6 +111,45 @@ export async function signOutFirebase(): Promise<void> {
 }
 
 const STATE_DOC_PATH = 'inventory_data/shared_ledger';
+
+// Save state to Cloud SQL PostgreSQL via Express API
+export async function saveStateToCloudSQL(state: AppState, userDisplayName?: string): Promise<boolean> {
+  try {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch('/api/ledger/save', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        state,
+        updatedBy: userDisplayName || auth.currentUser?.email || 'Store Staff'
+      })
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Cloud SQL save notice:', err);
+    return false;
+  }
+}
+
+// Fetch initial state from Cloud SQL PostgreSQL
+export async function fetchStateFromCloudSQL(): Promise<AppState | null> {
+  try {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch('/api/ledger', { headers });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.found ? data.state : null;
+  } catch (err) {
+    console.warn('Cloud SQL fetch notice:', err);
+    return null;
+  }
+}
 
 export async function saveStateToFirestore(state: AppState, userDisplayName?: string): Promise<void> {
   try {

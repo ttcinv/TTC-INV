@@ -27,9 +27,10 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { ShieldAlert } from 'lucide-react';
 import {
   testConnection,
-  ensureAuthSession,
   saveStateToFirestore,
   subscribeToFirestoreState,
+  saveStateToCloudSQL,
+  fetchStateFromCloudSQL,
   signInWithGoogle,
   auth
 } from './firebase';
@@ -88,7 +89,18 @@ export default function App() {
   // Initialize Firebase connection and sync
   useEffect(() => {
     testConnection();
-    ensureAuthSession();
+
+    // Check Cloud SQL first for persistent state
+    fetchStateFromCloudSQL().then(sqlState => {
+      if (sqlState && typeof sqlState === 'object') {
+        isRemoteSyncRef.current = true;
+        setState(sqlState);
+        setCloudStatus('connected');
+        setTimeout(() => {
+          isRemoteSyncRef.current = false;
+        }, 150);
+      }
+    });
 
     const unsubAuth = onAuthStateChanged(auth, u => {
       setFirebaseUser(u);
@@ -111,6 +123,7 @@ export default function App() {
         saveStateToFirestore(initial, 'Initial Setup')
           .then(() => setCloudStatus('connected'))
           .catch(() => setCloudStatus('offline'));
+        saveStateToCloudSQL(initial, 'Initial Setup');
       }
     );
 
@@ -217,9 +230,11 @@ export default function App() {
 
       if (!isRemoteSyncRef.current) {
         setCloudStatus('syncing');
-        saveStateToFirestore(next, currentUser?.name || firebaseUser?.email || undefined)
+        const author = currentUser?.name || firebaseUser?.email || undefined;
+        saveStateToFirestore(next, author)
           .then(() => setCloudStatus('connected'))
           .catch(() => setCloudStatus('offline'));
+        saveStateToCloudSQL(next, author);
       }
 
       return next;
